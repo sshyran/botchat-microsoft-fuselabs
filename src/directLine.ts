@@ -8,7 +8,7 @@ export const imageURL = (path:string) => domain + path;
 
 export const startConversation = (appSecret: string) =>
     Observable
-        .ajax<AjaxResponse>({
+        .ajax({
             method: "POST",
             url: `${baseUrl}`,
             headers: {
@@ -17,12 +17,12 @@ export const startConversation = (appSecret: string) =>
             }
         })
 //        .do(ajaxResponse => console.log("conversation ajaxResponse", ajaxResponse))
-        .retry(50)
+        .retryWhen(error$ => error$.delay(1000))
         .map(ajaxResponse => ajaxResponse.response as BotConversation);
 
 export const postMessage = (text: string, conversation: BotConversation, userId: string) =>
     Observable
-        .ajax<AjaxResponse>({
+        .ajax({
             method: "POST",
             url: `${baseUrl}/${conversation.conversationId}/messages`,
             body: {
@@ -36,14 +36,14 @@ export const postMessage = (text: string, conversation: BotConversation, userId:
             }
         })
 //        .do(ajaxResponse => console.log("post message ajaxResponse", ajaxResponse))
-        .retry(50)
+        .retryWhen(error$ => error$.delay(1000))
         .map(ajaxResponse => true);
 
 export const postFile = (file: File, conversation: BotConversation) => {
     const formData = new FormData();
     formData.append('file', file);
     return Observable
-        .ajax<AjaxResponse>({
+        .ajax({
             method: "POST",
             url: `${baseUrl}/${conversation.conversationId}/upload`,
             body: formData,
@@ -52,6 +52,7 @@ export const postFile = (file: File, conversation: BotConversation) => {
             }
         })
 //        .do(ajaxResponse => console.log("post file ajaxResponse", ajaxResponse))
+        .retryWhen(error$ => error$.delay(1000))
         .map(ajaxResponse => true)
 }
 
@@ -79,7 +80,7 @@ const messagesGenerator = (conversation: BotConversation, subscriber: Subscriber
 
 const getMessageGroup = (conversation: BotConversation, watermark = "") =>
     Observable
-        .ajax<AjaxResponse>({
+        .ajax({
             method: "GET",
             url: `${baseUrl}/${conversation.conversationId}/messages?watermark=${watermark}`,
             headers: {
@@ -88,5 +89,5 @@ const getMessageGroup = (conversation: BotConversation, watermark = "") =>
             }
         })
 //        .do(ajaxResponse => console.log("get messages ajaxResponse", ajaxResponse))
-        .retry(50)
+        .retryWhen(error$ => error$.delay(1000))
         .map(ajaxResponse => ajaxResponse.response as BotMessageGroup);
