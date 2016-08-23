@@ -2,14 +2,12 @@ import * as React from 'react';
 import * as ReactDOM from 'react-dom';
 import { Observable, Subscriber, Subject } from '@reactivex/rxjs';
 import { BotMessage, BotConversation } from './directLineTypes';
-import { startConversation, getMessages, postMessage, postFile, imageURL } from './directLine';
+import { startConversation, getMessages, postMessage, postFile } from './directLine';
 import { History } from './History.tsx'
 import { Console } from './Console.tsx'
 
-export interface Message {
-    from: "me" | "bot",
-    text?: string,
-    images?: string[],
+export interface Message extends BotMessage {
+    fromBot: boolean,
     timestamp: number
 } 
 
@@ -51,12 +49,10 @@ const incoming$ = (conversation: BotConversation, userId: string) =>
 
 const messagegroup$ = (conversation: BotConversation, userId: string) =>
     incoming$(conversation, userId)
-    .map<Message>(botmessage => ({
-        text: botmessage.text,
-        images: botmessage.images.map(path => imageURL(path)),
-        from: "bot",
-        timestamp: Date.parse(botmessage.created)
-    }))
+    .map<Message>(botmessage => Object.assign({}, botmessage, {
+            fromBot: true,
+            timestamp: Date.parse(botmessage.created)
+        }) as Message)
     .merge(outgoing$)
     .scan<MessageGroup[]>((messagegroups, message) => {
         let ms: Message[];
@@ -152,7 +148,7 @@ class App extends React.Component<{}, State> {
                 () => {
                     outgoing$.next({
                         text: text,
-                        from: "me",
+                        fromBot: false,
                         timestamp: Date.now()
                     });
                 },
@@ -197,7 +193,7 @@ class App extends React.Component<{}, State> {
                 () => {
                     outgoing$.next({
                         text: this.state.console.text,
-                        from: "me",
+                        fromBot: false,
                         timestamp: Date.now()
                     });
                     console$.next({
@@ -222,7 +218,7 @@ class App extends React.Component<{}, State> {
                     () => {
                         outgoing$.next({
                             images: [window.URL.createObjectURL(file)],
-                            from: "me",
+                            fromBot: false,
                             timestamp: Date.now()
                         });
                     },
