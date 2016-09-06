@@ -22,11 +22,12 @@ export class History extends React.Component<Props, {}> {
     }
 
     render() {
+        console.log("rendering history");
         return ( 
             <div className="wc-message-groups" ref={ref => this.scrollme = ref} onScroll={ e => this.props.actions.setAutoscroll(e.target.scrollTop + e.target.offsetHeight >= e.target.scrollHeight) }>
                 { this.props.messagegroups.map(messagegroup =>
                     <div className="wc-message-group">
-                        <Timestamp timestamp={ messagegroup.timestamp } />
+                        <Timestamp timestamp={ messagegroup.ts } />
                         { messagegroup.messages.map(message => <HistoryMessage message={ message } actions={ this.props.actions }/>) }
                     </div>
                 ) }

@@ -1,10 +1,11 @@
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
+import { BotHeroCard } from './directLineTypes';
 import { HistoryActions } from './App.tsx';
 
 export const HeroCard = (props: {
     actions: HistoryActions,
-    content: any
+    content: BotHeroCard
 }) => {
     const buttonActions = {
         "imBack": props.actions.buttonImBack,

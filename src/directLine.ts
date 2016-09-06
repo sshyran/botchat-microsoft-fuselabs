@@ -1,15 +1,13 @@
-import { Observable, Subscriber, AjaxResponse, AjaxRequest } from '@reactivex/rxjs';
-import { BotConversation, BotMessage, BotMessageGroup } from './directLineTypes'; 
-
-/* V3 endpoint
+import { Observable, Subscriber, AjaxResponse, AjaxRequest } from 'rxjs';
+import { BotConversation, BotActivity, BotMessage /*, BotMessageGroup */ } from './directLineTypes'; 
+ 
+/* V3 endpoint */
 const domain = "https://ic-dandris-scratch.azurewebsites.net";
 const baseUrl = `${domain}/V3/directline/conversations`;
-*/
-const domain = "https://directline.botframework.com";
+/*
+const domain = "https://directline.botframework.com";s
 const baseUrl = `${domain}/api/conversations`;
-
-export const imageURL = (path:string) => domain + path;
-
+*/
 export const startConversation = (appSecret: string) =>
     Observable
         .ajax({
@@ -30,9 +28,10 @@ export const postMessage = (text: string, conversation: BotConversation, userId:
             method: "POST",
             url: `${baseUrl}/${conversation.conversationId}/messages`,
             body: {
+                type: "message",
                 text: text,
-                from: userId,
-                conversationId: conversation.conversationId
+                from: {id: userId},
+                conversation: {id: conversation.conversationId }
             },
             headers: {
                 "Content-Type": "application/json",
@@ -60,11 +59,13 @@ export const postFile = (file: File, conversation: BotConversation) => {
         .map(ajaxResponse => true)
 }
 
-export const getMessages = (conversation: BotConversation) =>
-    conversation.streamUrl ?
-        Observable.webSocket<BotMessage>(conversation.streamUrl)
-        .do(message => console.log("message", message))
-        :
+export const getActivities = (conversation: BotConversation) =>
+    Observable
+    .webSocket<BotActivity>(conversation.streamUrl)
+    .do(activity => console.log("WS message", activity));
+
+/*
+export const getPolledMessages = (conversation: BotConversation) =>
         new Observable<Observable<BotMessage>>((subscriber:Subscriber<Observable<BotMessage>>) =>
             messagesGenerator(conversation, subscriber)
         )
@@ -96,6 +97,6 @@ const getMessageGroup = (conversation: BotConversation, watermark = "") =>
                 "Authorization": `BotConnector ${conversation.token}`
             }
         })
-//        .do(ajaxResponse => console.log("get messages ajaxResponse", ajaxResponse))
         .retryWhen(error$ => error$.delay(1000))
         .map(ajaxResponse => ajaxResponse.response as BotMessageGroup);
+*/

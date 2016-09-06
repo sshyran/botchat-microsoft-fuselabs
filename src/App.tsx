@@ -1,19 +1,19 @@
 import * as React from 'react';
 import * as ReactDOM from 'react-dom';
-import { Observable, Subscriber, Subject } from '@reactivex/rxjs';
-import { BotMessage, BotConversation } from './directLineTypes';
-import { startConversation, getMessages, postMessage, postFile } from './directLine';
+import { Observable, Subscriber, Subject } from 'rxjs';
+import { BotMessage, BotConversation, BotFileAttachment } from './directLineTypes';
+import { startConversation, getActivities, postMessage, postFile } from './directLine';
 import { History } from './History.tsx'
 import { Console } from './Console.tsx'
 
 export interface Message extends BotMessage {
     fromBot: boolean,
-    timestamp: number
+    ts: number
 } 
 
 export interface MessageGroup {
     messages: Message[],
-    timestamp: number
+    ts: number
 }
 
 export interface ConsoleState {
@@ -44,14 +44,14 @@ const console$ = new Subject<ConsoleState>();
 const consoleStart = {text: "", enableSend: true};
 
 const incoming$ = (conversation: BotConversation, userId: string) =>
-    getMessages(conversation)
-    .filter(botmessage => botmessage.from != userId);
+    (getActivities(conversation) as Observable<BotMessage>)
+    .filter(botmessage => botmessage.from.id != userId);
 
 const messagegroup$ = (conversation: BotConversation, userId: string) =>
     incoming$(conversation, userId)
     .map<Message>(botmessage => Object.assign({}, botmessage, {
             fromBot: true,
-            timestamp: Date.parse(botmessage.created)
+            ts: Date.parse(botmessage.timestamp)
         }) as Message)
     .merge(outgoing$)
     .scan<MessageGroup[]>((messagegroups, message) => {
@@ -62,7 +62,7 @@ const messagegroup$ = (conversation: BotConversation, userId: string) =>
             mgs = [];
         } else {
             const latest = messagegroups[messagegroups.length - 1];        
-            if (message.timestamp - latest.timestamp < 60 * 1000) {
+            if (message.ts - latest.ts < 60 * 1000) {
                 ms = latest.messages.slice();
                 ms.push(message);
                 mgs = messagegroups.slice(0, messagegroups.length - 1);
@@ -71,7 +71,7 @@ const messagegroup$ = (conversation: BotConversation, userId: string) =>
                 mgs = messagegroups.slice();
             }
         }
-        mgs.push({ messages: ms, timestamp: message.timestamp });
+        mgs.push({ messages: ms, ts: message.ts });
         return mgs;
     }, []);
 
@@ -149,7 +149,7 @@ class App extends React.Component<{}, State> {
                     outgoing$.next({
                         text: text,
                         fromBot: false,
-                        timestamp: Date.now()
+                        ts: Date.now()
                     });
                 },
                 error => {
@@ -194,7 +194,7 @@ class App extends React.Component<{}, State> {
                     outgoing$.next({
                         text: this.state.console.text,
                         fromBot: false,
-                        timestamp: Date.now()
+                        ts: Date.now()
                     });
                     console$.next({
                         text: "",
@@ -217,9 +217,12 @@ class App extends React.Component<{}, State> {
                 .subscribe(
                     () => {
                         outgoing$.next({
-                            images: [window.URL.createObjectURL(file)],
+                            attachments: [{
+                                contentType: "image/png",
+                                contentUrl: window.URL.createObjectURL(file)
+                            } as BotFileAttachment],
                             fromBot: false,
-                            timestamp: Date.now()
+                            ts: Date.now()
                         });
                     },
                     error => {
