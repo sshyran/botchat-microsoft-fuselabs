@@ -10,20 +10,6 @@ var directLine_1 = require('./directLine');
 var History_1 = require('./History');
 var Shell_1 = require('./Shell');
 var DebugView_1 = require('./DebugView');
-var connection = function (state, action) {
-    if (state === void 0) { state = {
-        conversation: undefined,
-        userId: undefined,
-    }; }
-    switch (action.type) {
-        case 'Set_UserId':
-            return { conversation: state.conversation, userId: action.userId };
-        case 'Connected_To_Bot':
-            return { conversation: action.conversation, userId: state.userId };
-        default:
-            return state;
-    }
-};
 var shell = function (state, action) {
     if (state === void 0) { state = {
         text: '',
@@ -107,7 +93,7 @@ var UI = (function (_super) {
         exports.store.subscribe(function () {
             return _this.forceUpdate();
         });
-        exports.store.dispatch({ type: 'Set_UserId', userId: guid() });
+        exports.store.dispatch(setUserId(guid()));
         var debug = this.props.debug && this.props.debug.toLowerCase();
         var debugViewState = DebugViewState.disabled;
         if (debug === DebugViewState[DebugViewState.enabled])
@@ -117,7 +103,7 @@ var UI = (function (_super) {
         exports.store.dispatch({ type: 'Set_Debug', viewState: debugViewState });
         directLine_1.startConversation(this.props.appSecret)
             .do(function (conversation) {
-            exports.store.dispatch({ type: 'Connected_To_Bot', conversation: conversation });
+            exports.store.dispatch(connectedToBot(conversation));
         })
             .flatMap(function (conversation) {
             return directLine_1.getActivities(conversation);

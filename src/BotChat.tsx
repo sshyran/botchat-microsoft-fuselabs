@@ -6,36 +6,7 @@ import { startConversation, getActivities, postMessage, postFile, mimeTypes } fr
 import { History } from './History';
 import { Shell } from './Shell';
 import { DebugView } from './DebugView';
-
-interface ConnectionState {
-    conversation: Conversation,
-    userId: string
-}
-
-export type ConnectionAction = {
-    type: 'Set_UserId', 
-    userId: string
-} | {
-    type: 'Connected_To_Bot',
-    conversation: Conversation
-}
-
-const connection: Reducer<ConnectionState> = (
-    state: ConnectionState = {
-        conversation: undefined,
-        userId: undefined,
-    },
-    action: ConnectionAction
-) => {
-    switch (action.type) {
-        case 'Set_UserId':
-            return { conversation: state.conversation, userId: action.userId };
-        case 'Connected_To_Bot':
-            return { conversation: action.conversation, userId: state.userId };
-        default:
-            return state;
-    }
-}
+import * as connection from './modules/connection';
 
 interface ShellState {
     text: string,
@@ -183,7 +154,7 @@ export class UI extends React.Component<Props, {}> {
             this.forceUpdate()
         );
 
-        store.dispatch({ type: 'Set_UserId', userId:guid() } as ConnectionAction);
+        store.dispatch(setUserId(guid()));
 
         const debug = this.props.debug && this.props.debug.toLowerCase();
         let debugViewState: DebugViewState = DebugViewState.disabled;
@@ -196,7 +167,7 @@ export class UI extends React.Component<Props, {}> {
 
         startConversation(this.props.appSecret)
         .do(conversation => {
-            store.dispatch({ type: 'Connected_To_Bot', conversation } as ConnectionAction)
+            store.dispatch(connectedToBot(conversation));
         })
         .flatMap(conversation =>
             getActivities(conversation)
