@@ -1,13 +1,17 @@
 {
   "name": "msbotchat",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "sample web chat app for MS bot framework ",
-  "main": "index.js",
+  "main": "public/botchat.js",
   "scripts": {
     "typings": "typings install",
-    "build": "webpack",
-    "watch": "webpack -w",
+    "build": "tsc && webpack",
+    "watch": "npm-run-all -p -r -l tsc-watch webpack-watch",
+    "tsc-watch": "tsc -w",
+    "webpack-watch": "webpack -w",
+    "clean": "rm -rf built",
     "minify": "webpack --optimize-minimize --optimize-dedupe",
+    "start": "http-server -p 8000",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -17,14 +21,24 @@
   "author": "Bill Barnes",
   "license": "MIT",
   "dependencies": {
-    "@reactivex/rxjs": "5.0.0-beta.11",
-    "promise": "^7.1.1"
+    "@reactivex/rxjs": "^5.0.0-beta.12",
+    "@types/es6-shim": "^0.31.32",
+    "@types/he": "^0.5.29",
+    "@types/marked": "0.0.28",
+    "@types/react": "^0.14.37",
+    "@types/react-dom": "^0.14.17",
+    "@types/redux": "^3.5.30",
+    "he": "^1.1.0",
+    "marked": "^0.3.6",
+    "promise": "^7.1.1",
+    "redux": "^3.6.0"
   },
   "devDependencies": {
     "http-server": "^0.9.0",
-    "source-loader": "^0.2.0",
+    "npm-run-all": "^3.1.0",
+    "source-map-loader": "^0.1.5",
     "ts-loader": "^0.8.2",
-    "typescript": "^1.8.10",
+    "typescript": "^2.0.3",
     "webpack": "^1.13.1"
   }
 }

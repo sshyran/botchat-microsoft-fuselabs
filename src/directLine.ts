@@ -1,38 +1,67 @@
 import { Observable, Subscriber, AjaxResponse, AjaxRequest } from '@reactivex/rxjs';
-import { BotConversation, BotMessage, BotMessageGroup } from './directLineTypes'; 
+import { Conversation, Activity, Message } from './directLineTypes'; 
 
-/* V3 endpoint
+/*
+// DL V3
+
 const domain = "https://ic-dandris-scratch.azurewebsites.net";
 const baseUrl = `${domain}/V3/directline/conversations`;
 */
+
+// DL v1 
+
 const domain = "https://directline.botframework.com";
 const baseUrl = `${domain}/api/conversations`;
 
-export const imageURL = (path:string) => domain + path;
+export interface DLAttachment {
+    url: string,
+    contentType: string
+}
 
-export const startConversation = (appSecret: string) =>
+export interface DLMessage
+{
+    id?: string,
+    conversationId?: string,
+    created?: string,
+    from?: string,
+    text?: string,
+    channelData?: Activity | any,
+    images?: string[],
+    attachments?: DLAttachment[];
+    eTag?: string;
+}
+
+export interface DLMessageGroup
+{
+    messages: DLMessage[],
+    watermark?: string,
+    eTag?: string
+}
+
+export const startConversation = (secretOrToken: string) =>
     Observable
         .ajax({
             method: "POST",
             url: `${baseUrl}`,
             headers: {
                 "Accept": "application/json",
-                "Authorization": `BotConnector ${appSecret}` 
+                "Authorization": `BotConnector ${secretOrToken}` 
             }
         })
         .do(ajaxResponse => console.log("conversation ajaxResponse", ajaxResponse))
         .retryWhen(error$ => error$.delay(1000))
-        .map(ajaxResponse => ajaxResponse.response as BotConversation);
+        .map<Conversation>(ajaxResponse => Object.assign({}, ajaxResponse.response, { userId: 'foo'}));
 
-export const postMessage = (text: string, conversation: BotConversation, userId: string) =>
+export const postMessage = (text: string, conversation: Conversation, from: string, channelData?: any) =>
     Observable
         .ajax({
             method: "POST",
             url: `${baseUrl}/${conversation.conversationId}/messages`,
-            body: {
-                text: text,
-                from: userId,
-                conversationId: conversation.conversationId
+            body: <DLMessage>{
+                text,
+                from,
+                conversationId: conversation.conversationId,
+                channelData
             },
             headers: {
                 "Content-Type": "application/json",
@@ -43,7 +72,7 @@ export const postMessage = (text: string, conversation: BotConversation, userId:
         .retryWhen(error$ => error$.delay(1000))
         .map(ajaxResponse => true);
 
-export const postFile = (file: File, conversation: BotConversation) => {
+export const postFile = (file: File, conversation: Conversation) => {
     const formData = new FormData();
     formData.append('file', file);
     return Observable
@@ -60,25 +89,61 @@ export const postFile = (file: File, conversation: BotConversation) => {
         .map(ajaxResponse => true)
 }
 
-export const getMessages = (conversation: BotConversation) =>
-    conversation.streamUrl ?
-        Observable.webSocket<BotMessage>(conversation.streamUrl)
-        .do(message => console.log("message", message))
-        :
-        new Observable<Observable<BotMessage>>((subscriber:Subscriber<Observable<BotMessage>>) =>
-            messagesGenerator(conversation, subscriber)
-        )
-        .concatAll();
+export const mimeTypes = {
+    png: 'image/png',
+    jpg: 'image/jpg',
+    jpeg: 'image/jpeg'
+}
 
-const messagesGenerator = (conversation: BotConversation, subscriber: Subscriber<Observable<BotMessage>>, watermark?: string) => {
-    getMessageGroup(conversation, watermark).subscribe(
+export const getActivities = (conversation: Conversation) =>
+    new Observable<Observable<DLMessage>>((subscriber:Subscriber<Observable<DLMessage>>) =>
+        activitiesGenerator(conversation, subscriber)
+    )
+    .concatAll() 
+    .do(dlm => console.log("DL Message", dlm))
+    .map(dlm => {
+        if (dlm.channelData) {
+            const channelData = <Activity>dlm.channelData; 
+            switch(channelData.type) {
+                case "message":
+                    return <Message>Object.assign({}, channelData, {
+                        id: dlm.id,
+                        conversation: { id: dlm.conversationId },
+                        timestamp: dlm.created,
+                        from: { id: dlm.from },
+                        channelData: null,
+                    });
+                default:
+                    return channelData;
+            }
+        } else {
+            return <Message>{
+                type: "message",
+                id: dlm.id,
+                conversation: { id: dlm.conversationId },
+                timestamp: dlm.created,
+                from: { id: dlm.from },
+                text: dlm.text,
+                textFormat: "markdown",
+                eTag: dlm.eTag,
+                attachments: dlm.images && dlm.images.map(path => ({
+                    contentType: mimeTypes[path.split('.').pop()],
+                    contentUrl: domain + path,
+                    name: '2009-09-21'
+                }))
+            }
+        }
+    });
+
+const activitiesGenerator = (conversation: Conversation, subscriber: Subscriber<Observable<DLMessage>>, watermark?: string) => {
+    getActivityGroup(conversation, watermark).subscribe(
         messageGroup => {
             const someMessages = messageGroup && messageGroup.messages && messageGroup.messages.length > 0;
             if (someMessages)
                 subscriber.next(Observable.from(messageGroup.messages));
 
             setTimeout(
-                () => messagesGenerator(conversation, subscriber, messageGroup && messageGroup.watermark),
+                () => activitiesGenerator(conversation, subscriber, messageGroup && messageGroup.watermark),
                 someMessages && messageGroup.watermark ? 0 : 3000
             );
         },
@@ -86,7 +151,7 @@ const messagesGenerator = (conversation: BotConversation, subscriber: Subscriber
     );
 }
 
-const getMessageGroup = (conversation: BotConversation, watermark = "") =>
+const getActivityGroup = (conversation: Conversation, watermark = "") =>
     Observable
         .ajax({
             method: "GET",
@@ -98,4 +163,4 @@ const getMessageGroup = (conversation: BotConversation, watermark = "") =>
         })
 //        .do(ajaxResponse => console.log("get messages ajaxResponse", ajaxResponse))
         .retryWhen(error$ => error$.delay(1000))
-        .map(ajaxResponse => ajaxResponse.response as BotMessageGroup);
+        .map(ajaxResponse => ajaxResponse.response as DLMessageGroup);
