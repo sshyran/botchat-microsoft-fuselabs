@@ -41,5 +41,8 @@
     "ts-loader": "^0.8.2",
     "typescript": "^2.0.3",
     "webpack": "^1.13.1"
+  },
+  "scripts": {
+    "test": "mocha"
   }
 }
