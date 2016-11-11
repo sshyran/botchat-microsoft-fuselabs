@@ -43,7 +43,7 @@ export const AttachmentView = (props: {
         </ul>;
 
     const imageWithOnLoad = (url: string) =>
-        <img src={ url } onLoad={ () => {console.log("local onImageLoad");props.onImageLoad();} } />;
+        <img src={ url } onLoad={ () => props.onImageLoad() } />;
 
     const audio = (audioUrl: string, autoPlay?:boolean, loop?: boolean) =>
         <audio src={ audioUrl } autoPlay={ autoPlay } controls loop={ loop } />;
@@ -52,10 +52,12 @@ export const AttachmentView = (props: {
         <video src={ videoUrl } poster={ thumbnailUrl } autoPlay={ autoPlay } controls loop={ loop } onLoadedMetadata={ () => {console.log("local onVideoLoad");props.onImageLoad();} } />;
 
     const attachedImage = (images?: { url: string }[]) =>
-        images && imageWithOnLoad(images[0].url);
+        images && images.length > 0 && imageWithOnLoad(images[0].url);
 
     switch (attachment.contentType) {
         case "application/vnd.microsoft.card.hero":
+            if (!attachment.content)
+                return null;
             return (
                 <div className='wc-card hero'>
                     { attachedImage(attachment.content.images) }
@@ -67,6 +69,8 @@ export const AttachmentView = (props: {
             );
 
         case "application/vnd.microsoft.card.thumbnail":
+            if (!attachment.content)
+                return null;
             return (
                 <div className='wc-card thumbnail'>
                     <h1>{ attachment.content.title }</h1>
@@ -80,14 +84,11 @@ export const AttachmentView = (props: {
             );
 
         case "application/vnd.microsoft.card.video":
-
-            var thumbnail: string;
-
-            if (attachment.content.image) thumbnail = attachment.content.image.url;
-            
+            if (!attachment.content || !attachment.content.media || attachment.content.media.length === 0)
+                return null;
             return (
                 <div className='wc-card video'>
-                    { videoWithOnLoad(attachment.content.media[0].url, thumbnail, attachment.content.autostart, attachment.content.autoloop) }
+                    { videoWithOnLoad(attachment.content.media[0].url, attachment.content.image ? attachment.content.image.url : null, attachment.content.autostart, attachment.content.autoloop) }
                     <h1>{ attachment.content.title }</h1>
                     <h2>{ attachment.content.subtitle }</h2>
                     <p>{ attachment.content.text }</p>
@@ -96,7 +97,8 @@ export const AttachmentView = (props: {
             );
 
         case "application/vnd.microsoft.card.audio":
-
+            if (!attachment.content || !attachment.content.media || attachment.content.media.length === 0)
+                return null;
             return (
                 <div className='wc-card audio'>
                     { audio(attachment.content.media[0].url, attachment.content.autostart, attachment.content.autoloop) }
@@ -108,6 +110,8 @@ export const AttachmentView = (props: {
             );
 
         case "application/vnd.microsoft.card.signin":
+            if (!attachment.content)
+                return null;
             return (
                 <div className='wc-card signin'>
                     <h1>{ attachment.content.text }</h1>
@@ -116,6 +120,8 @@ export const AttachmentView = (props: {
             );
 
         case "application/vnd.microsoft.card.receipt":
+            if (!attachment.content)
+                return null;
             return (
                 <div className='wc-card receipt'>
                     <table>
@@ -159,7 +165,7 @@ export const AttachmentView = (props: {
             return videoWithOnLoad(attachment.contentUrl);
 
         default:
-            return <span/>;
+            return <span>[File of type '{ (attachment as any).contentType }']</span>;
 
     }
 }

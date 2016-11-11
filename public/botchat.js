@@ -68,8 +68,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	exports.Chat = Chat_1.Chat;
 	var directLine_1 = __webpack_require__(497);
 	exports.DirectLine = directLine_1.DirectLine;
-	var directLine3_1 = __webpack_require__(843);
-	exports.DirectLine3 = directLine3_1.DirectLine3;
+	exports.DirectLine3 = directLine_1.DirectLine;
 
 
 /***/ },
@@ -21548,7 +21547,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        this.store = Store_1.createStore();
 	        this.typingTimers = {};
 	        console.log("BotChat.Chat props", props);
-	        this.store.dispatch({ type: 'Start_Connection', user: props.user, botConnection: props.botConnection });
+	        this.store.dispatch({ type: 'Start_Connection', user: props.user, botConnection: props.botConnection, selectedActivity: props.selectedActivity });
 	        if (props.formatOptions)
 	            this.store.dispatch({ type: 'Set_Format_Options', options: props.formatOptions });
 	        this.store.dispatch({ type: 'Set_Localized_Strings', strings: Strings_1.strings(props.locale || window.navigator.language) });
@@ -21557,6 +21556,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	            _this.store.dispatch({ type: 'Connected_To_Bot' });
 	        });
 	        this.activitySubscription = props.botConnection.activity$.subscribe(function (activity) { return _this.handleIncomingActivity(activity); }, function (error) { return console.log("errors", error); });
+	        if (props.selectedActivity) {
+	            this.selectedActivitySubscription = props.selectedActivity.subscribe(function (activityOrID) {
+	                _this.store.dispatch({
+	                    type: 'Select_Activity',
+	                    selectedActivity: activityOrID.activity || _this.store.getState().history.activities.find(function (activity) { return activity.id === activityOrID.id; })
+	                });
+	            });
+	        }
+	        else {
+	            this.selectActivity = null; // doing this here saves us a ternary branch when calling <History> in render()
+	        }
 	    }
 	    Chat.prototype.handleIncomingActivity = function (activity) {
 	        var _this = this;
@@ -21565,7 +21575,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            case "message":
 	                if (activity.from.id === state.connection.user.id)
 	                    break;
-	                // 'typing' activity only available with WebSockets, so this allows us to test with polling GET 
+	                // 'typing' activity only available with WebSockets, so this allows us to test with polling GET
 	                if (activity.text && activity.text.endsWith("//typing"))
 	                    activity = Object.assign({}, activity, { type: 'typing' });
 	                else {
@@ -21582,9 +21592,13 @@ return /******/ (function(modules) { // webpackBootstrap
 	                this.typingTimers[activity.from.id] = setTimeout(function () {
 	                    _this.typingTimers[activity.from.id] = undefined;
 	                    _this.store.dispatch({ type: 'Clear_Typing', from: activity.from });
+	                    exports.updateSelectedActivity(_this.store);
 	                }, 3000);
 	                break;
 	        }
+	    };
+	    Chat.prototype.selectActivity = function (activity) {
+	        this.props.selectedActivity.next({ activity: activity });
 	    };
 	    Chat.prototype.componentDidMount = function () {
 	        var _this = this;
@@ -21595,6 +21609,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    Chat.prototype.componentWillUnmount = function () {
 	        this.activitySubscription.unsubscribe();
 	        this.connectedSubscription.unsubscribe();
+	        this.selectedActivitySubscription.unsubscribe();
 	        this.props.botConnection.end();
 	        this.storeUnsubscribe();
 	        for (var key in this.typingTimers) {
@@ -21602,6 +21617,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	    };
 	    Chat.prototype.render = function () {
+	        var _this = this;
 	        var state = this.store.getState();
 	        console.log("BotChat.Chat state", state);
 	        var header;
@@ -21612,12 +21628,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	                );
 	        return (React.createElement("div", {className: "wc-chatview-panel"}, 
 	            header, 
-	            React.createElement(History_1.History, {store: this.store, onActivitySelected: this.props.onActivitySelected}), 
+	            React.createElement(History_1.History, {store: this.store, selectActivity: function (activity) { return _this.selectActivity(activity); }}), 
 	            React.createElement(Shell_1.Shell, {store: this.store})));
 	    };
 	    return Chat;
 	}(React.Component));
 	exports.Chat = Chat;
+	exports.updateSelectedActivity = function (store) {
+	    var state = store.getState();
+	    if (state.connection.selectedActivity)
+	        state.connection.selectedActivity.next({ activity: state.history.selectedActivity });
+	};
 	exports.sendMessage = function (store, text) {
 	    if (!text || typeof text !== 'string' || text.trim().length === 0)
 	        return;
@@ -21631,6 +21652,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	        } });
 	    exports.trySendMessage(store, sendId);
 	};
+	var sendMessageSucceed = function (store, sendId) { return function (id) {
+	    console.log("success sending message", id);
+	    store.dispatch({ type: "Send_Message_Succeed", sendId: sendId, id: id });
+	    exports.updateSelectedActivity(store);
+	}; };
+	var sendMessageFail = function (store, sendId) { return function (error) {
+	    console.log("failed to send message", error);
+	    // TODO: show an error under the message with "retry" link
+	    store.dispatch({ type: "Send_Message_Fail", sendId: sendId });
+	    exports.updateSelectedActivity(store);
+	}; };
 	exports.trySendMessage = function (store, sendId, updateStatus) {
 	    if (updateStatus === void 0) { updateStatus = false; }
 	    if (updateStatus) {
@@ -21639,14 +21671,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var state = store.getState();
 	    var activity = state.history.activities.find(function (activity) { return activity["sendId"] === sendId; });
 	    state.connection.botConnection.postMessage(activity.text, state.connection.user)
-	        .subscribe(function (id) {
-	        console.log("success sending message", id);
-	        store.dispatch({ type: "Send_Message_Succeed", sendId: sendId, id: id });
-	    }, function (error) {
-	        console.log("failed to send message", error);
-	        // TODO: show an error under the message with "retry" link
-	        store.dispatch({ type: "Send_Message_Fail", sendId: sendId });
-	    });
+	        .subscribe(sendMessageSucceed(store, sendId), sendMessageFail(store, sendId));
 	};
 	exports.sendPostBack = function (store, text) {
 	    var state = store.getState();
@@ -21658,7 +21683,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    });
 	};
 	exports.sendFiles = function (store, files) {
-	    var _loop_1 = function(i, numFiles) {
+	    for (var i = 0, numFiles = files.length; i < numFiles; i++) {
 	        var file = files[i];
 	        console.log("file", file);
 	        var state = store.getState();
@@ -21675,16 +21700,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            } });
 	        state = store.getState();
 	        state.connection.botConnection.postFile(file, state.connection.user)
-	            .subscribe(function (id) {
-	            console.log("success posting file");
-	            store.dispatch({ type: "Send_Message_Succeed", sendId: sendId, id: id });
-	        }, function (error) {
-	            console.log("failed to post file");
-	            store.dispatch({ type: "Send_Message_Fail", sendId: sendId });
-	        });
-	    };
-	    for (var i = 0, numFiles = files.length; i < numFiles; i++) {
-	        _loop_1(i, numFiles);
+	            .subscribe(sendMessageSucceed(store, sendId), sendMessageFail(store, sendId));
 	    }
 	};
 
@@ -21704,12 +21720,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	var History = (function (_super) {
 	    __extends(History, _super);
 	    function History(props) {
-	        var _this = this;
 	        _super.call(this, props);
 	        this.scrollToBottom = true;
-	        this.onImageLoad = function () {
-	            _this.autoscroll();
-	        };
 	    }
 	    History.prototype.componentWillUpdate = function () {
 	        this.scrollToBottom = this.scrollMe.scrollTop + this.scrollMe.offsetHeight >= this.scrollMe.scrollHeight;
@@ -21717,11 +21729,12 @@ return /******/ (function(modules) { // webpackBootstrap
 	    History.prototype.componentDidUpdate = function () {
 	        this.autoscroll();
 	    };
-	    History.prototype.onActivitySelected = function (activity) {
-	        if (this.props.onActivitySelected) {
-	            this.props.store.dispatch({ type: 'Select_Activity', selectedActivity: activity });
-	            this.props.onActivitySelected(activity);
-	        }
+	    History.prototype.selectActivity = function (activity) {
+	        if (this.props.selectActivity)
+	            this.props.selectActivity(activity);
+	    };
+	    History.prototype.onImageLoad = function () {
+	        this.autoscroll();
 	    };
 	    History.prototype.autoscroll = function () {
 	        if (this.scrollToBottom)
@@ -21739,13 +21752,13 @@ return /******/ (function(modules) { // webpackBootstrap
 	            if (index === activities.length - 1 || (index + 1 < activities.length && _this.suitableInterval(activity, activities[index + 1]))) {
 	                timeLine = " at " + (new Date(activity.timestamp)).toLocaleTimeString();
 	            }
-	            return (React.createElement("div", {key: index, className: "wc-message-wrapper" + (_this.props.onActivitySelected ? ' clickable' : ''), onClick: function (e) { return _this.onActivitySelected(activity); }}, 
+	            return (React.createElement("div", {key: index, className: "wc-message-wrapper" + (_this.props.selectActivity ? ' clickable' : ''), onClick: function (e) { return _this.selectActivity(activity); }}, 
 	                React.createElement("div", {className: 'wc-message wc-message-from-' + (activity.from.id === state.connection.user.id ? 'me' : 'bot')}, 
 	                    React.createElement("div", {className: 'wc-message-content' + (activity === state.history.selectedActivity ? ' selected' : '')}, 
 	                        React.createElement("svg", {className: "wc-message-callout"}, 
 	                            React.createElement("path", {className: "point-left", d: "m0,6 l6 6 v-12 z"}), 
 	                            React.createElement("path", {className: "point-right", d: "m6,6 l-6 6 v-12 z"})), 
-	                        React.createElement(ActivityView_1.ActivityView, {store: _this.props.store, activity: activity, onImageLoad: _this.onImageLoad})), 
+	                        React.createElement(ActivityView_1.ActivityView, {store: _this.props.store, activity: activity, onImageLoad: function () { return _this.onImageLoad; }})), 
 	                    React.createElement("div", {className: "wc-message-from"}, 
 	                        activity.from.id === state.connection.user.id ? 'you' : activity.from.name || activity.from.id || '', 
 	                        timeLine))
@@ -21835,7 +21848,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            React.createElement("button", {onClick: function () { return onClickButton(button.type, button.value); }}, button.title)
 	        ); })); };
 	    var imageWithOnLoad = function (url) {
-	        return React.createElement("img", {src: url, onLoad: function () { console.log("local onImageLoad"); props.onImageLoad(); }});
+	        return React.createElement("img", {src: url, onLoad: function () { return props.onImageLoad(); }});
 	    };
 	    var audio = function (audioUrl, autoPlay, loop) {
 	        return React.createElement("audio", {src: audioUrl, autoPlay: autoPlay, controls: true, loop: loop});
@@ -21844,10 +21857,12 @@ return /******/ (function(modules) { // webpackBootstrap
 	        return React.createElement("video", {src: videoUrl, poster: thumbnailUrl, autoPlay: autoPlay, controls: true, loop: loop, onLoadedMetadata: function () { console.log("local onVideoLoad"); props.onImageLoad(); }});
 	    };
 	    var attachedImage = function (images) {
-	        return images && imageWithOnLoad(images[0].url);
+	        return images && images.length > 0 && imageWithOnLoad(images[0].url);
 	    };
 	    switch (attachment.contentType) {
 	        case "application/vnd.microsoft.card.hero":
+	            if (!attachment.content)
+	                return null;
 	            return (React.createElement("div", {className: 'wc-card hero'}, 
 	                attachedImage(attachment.content.images), 
 	                React.createElement("h1", null, attachment.content.title), 
@@ -21855,6 +21870,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	                React.createElement("p", null, attachment.content.text), 
 	                buttons(attachment.content.buttons)));
 	        case "application/vnd.microsoft.card.thumbnail":
+	            if (!attachment.content)
+	                return null;
 	            return (React.createElement("div", {className: 'wc-card thumbnail'}, 
 	                React.createElement("h1", null, attachment.content.title), 
 	                React.createElement("p", null, 
@@ -21863,16 +21880,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	                    attachment.content.text), 
 	                buttons(attachment.content.buttons)));
 	        case "application/vnd.microsoft.card.video":
-	            var thumbnail;
-	            if (attachment.content.image)
-	                thumbnail = attachment.content.image.url;
+	            if (!attachment.content || !attachment.content.media || attachment.content.media.length === 0)
+	                return null;
 	            return (React.createElement("div", {className: 'wc-card video'}, 
-	                videoWithOnLoad(attachment.content.media[0].url, thumbnail, attachment.content.autostart, attachment.content.autoloop), 
+	                videoWithOnLoad(attachment.content.media[0].url, attachment.content.image ? attachment.content.image.url : null, attachment.content.autostart, attachment.content.autoloop), 
 	                React.createElement("h1", null, attachment.content.title), 
 	                React.createElement("h2", null, attachment.content.subtitle), 
 	                React.createElement("p", null, attachment.content.text), 
 	                buttons(attachment.content.buttons)));
 	        case "application/vnd.microsoft.card.audio":
+	            if (!attachment.content || !attachment.content.media || attachment.content.media.length === 0)
+	                return null;
 	            return (React.createElement("div", {className: 'wc-card audio'}, 
 	                audio(attachment.content.media[0].url, attachment.content.autostart, attachment.content.autoloop), 
 	                React.createElement("h1", null, attachment.content.title), 
@@ -21880,10 +21898,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	                React.createElement("p", null, attachment.content.text), 
 	                buttons(attachment.content.buttons)));
 	        case "application/vnd.microsoft.card.signin":
+	            if (!attachment.content)
+	                return null;
 	            return (React.createElement("div", {className: 'wc-card signin'}, 
 	                React.createElement("h1", null, attachment.content.text), 
 	                buttons(attachment.content.buttons)));
 	        case "application/vnd.microsoft.card.receipt":
+	            if (!attachment.content)
+	                return null;
 	            return (React.createElement("div", {className: 'wc-card receipt'}, 
 	                React.createElement("table", null, 
 	                    React.createElement("thead", null, 
@@ -21919,7 +21941,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	        case "video/mp4":
 	            return videoWithOnLoad(attachment.contentUrl);
 	        default:
-	            return React.createElement("span", null);
+	            return React.createElement("span", null, 
+	                "[File of type '", 
+	                attachment.contentType, 
+	                "']");
 	    }
 	};
 
@@ -23999,7 +24024,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            className += ' has-text';
 	        return (React.createElement("div", {className: className}, 
 	            React.createElement("label", {className: "wc-upload"}, 
-	                React.createElement("input", {type: "file", accept: "image/*", multiple: true, onChange: function (e) { return _this.onClickFile(e.target.files); }}), 
+	                React.createElement("input", {type: "file", multiple: true, onChange: function (e) { return _this.onClickFile(e.target.files); }}), 
 	                React.createElement("svg", {width: "26", height: "18"}, 
 	                    React.createElement("path", {d: "M 19.9603965 4.789052 m -2 0 a 2 2 0 0 1 4 0 a 2 2 0 0 1 -4 0 z M 8.3168322 4.1917918 L 2.49505 15.5342575 L 22.455446 15.5342575 L 17.465347 8.5643945 L 14.4158421 11.1780931 L 8.3168322 4.1917918 Z M 1.04 1 L 1.04 17 L 24.96 17 L 24.96 1 L 1.04 1 Z M 1.0352753 0 L 24.9647247 0 C 25.5364915 0 26 0.444957 26 0.9934084 L 26 17.006613 C 26 17.5552514 25.5265266 18 24.9647247 18 L 1.0352753 18 C 0.4635085 18 0 17.5550644 0 17.006613 L 0 0.9934084 C 0 0.44477 0.4734734 0 1.0352753 0 Z"})
 	                )), 
@@ -24044,18 +24069,30 @@ return /******/ (function(modules) { // webpackBootstrap
 	    if (state === void 0) { state = {
 	        connected: false,
 	        botConnection: undefined,
+	        selectedActivity: undefined,
 	        user: undefined,
 	        host: undefined
 	    }; }
 	    switch (action.type) {
 	        case 'Start_Connection':
-	            return { connected: false, botConnection: action.botConnection, user: action.user, host: state.host };
+	            return Object.assign({}, state, {
+	                connected: false,
+	                botConnection: action.botConnection,
+	                user: action.user,
+	                selectedActivity: action.selectedActivity
+	            });
 	        case 'Connected_To_Bot':
-	            return { connected: true, botConnection: state.botConnection, user: state.user, host: state.host };
+	            return Object.assign({}, state, {
+	                connected: true
+	            });
 	        case 'Subscribe_Host':
-	            return { connected: state.connected, botConnection: state.botConnection, user: state.user, host: action.host };
+	            return Object.assign({}, state, {
+	                host: action.host
+	            });
 	        case 'Unsubscribe_Host':
-	            return { connected: state.connected, botConnection: state.botConnection, user: state.user, host: undefined };
+	            return Object.assign({}, state, {
+	                host: undefined
+	            });
 	        default:
 	            return state;
 	    }
@@ -24094,32 +24131,40 @@ return /******/ (function(modules) { // webpackBootstrap
 	                autoscroll: true
 	            });
 	        case 'Send_Message_Try':
-	            var activity = state.activities.find(function (activity) { return activity["sendId"] === action.sendId; });
-	            return Object.assign({}, state, {
-	                activities: state.activities.filter(function (activity) { return activity["sendId"] !== action.sendId && activity.type !== "typing"; }).concat([
-	                    Object.assign({}, activity, {
-	                        status: "sending",
-	                        sendId: state.sendCounter
-	                    })
-	                ], state.activities.filter(function (activity) { return activity.type === "typing"; })),
-	                sendCounter: state.sendCounter + 1,
-	                autoscroll: true
-	            });
+	            {
+	                var activity = state.activities.find(function (activity) { return activity["sendId"] === action.sendId; });
+	                var newActivity = Object.assign({}, activity, {
+	                    status: "sending",
+	                    sendId: state.sendCounter
+	                });
+	                return Object.assign({}, state, {
+	                    activities: state.activities.filter(function (activity) { return activity["sendId"] !== action.sendId && activity.type !== "typing"; }).concat([
+	                        newActivity
+	                    ], state.activities.filter(function (activity) { return activity.type === "typing"; })),
+	                    sendCounter: state.sendCounter + 1,
+	                    autoscroll: true,
+	                    selectedActivity: state.selectedActivity === activity ? newActivity : state.selectedActivity
+	                });
+	            }
 	        case 'Send_Message_Succeed':
-	        case 'Send_Message_Fail':
+	        case 'Send_Message_Fail': {
 	            var i = state.activities.findIndex(function (activity) { return activity["sendId"] === action.sendId; });
 	            if (i === -1)
 	                return state;
+	            var activity = state.activities[i];
+	            var newActivity = Object.assign({}, activity, {
+	                status: action.type === 'Send_Message_Succeed' ? "sent" : "retry",
+	                id: action.type === 'Send_Message_Succeed' ? action.id : undefined
+	            });
 	            return Object.assign({}, state, {
 	                activities: state.activities.slice(0, i).concat([
-	                    Object.assign({}, state.activities[i], {
-	                        status: action.type === 'Send_Message_Succeed' ? "sent" : "retry",
-	                        id: action.type === 'Send_Message_Succeed' ? action.id : undefined
-	                    })
+	                    newActivity
 	                ], state.activities.slice(i + 1)),
 	                sendCounter: state.sendCounter + 1,
-	                autoscroll: true
+	                autoscroll: true,
+	                selectedActivity: state.selectedActivity === activity ? newActivity : state.selectedActivity
 	            });
+	        }
 	        case 'Show_Typing':
 	            return Object.assign({}, state, {
 	                activities: state.activities.filter(function (activity) { return activity.type !== "typing"; }).concat(state.activities.filter(function (activity) { return activity.from.id !== action.activity.from.id && activity.type === "typing"; }), [
@@ -24128,11 +24173,16 @@ return /******/ (function(modules) { // webpackBootstrap
 	                    })
 	                ])
 	            });
-	        case 'Clear_Typing':
+	        case 'Clear_Typing': {
+	            var activities = state.activities.filter(function (activity) { return activity.from.id !== action.from.id || activity.type !== "typing"; });
 	            return Object.assign({}, state, {
-	                activities: state.activities.filter(function (activity) { return activity.from.id !== action.from.id || activity.type !== "typing"; })
+	                activities: activities,
+	                selectedActivity: activities.includes(state.selectedActivity) ? state.selectedActivity : null
 	            });
+	        }
 	        case 'Select_Activity':
+	            if (action.selectedActivity === state.selectedActivity)
+	                return state;
 	            return Object.assign({}, state, {
 	                selectedActivity: action.selectedActivity
 	            });
@@ -32391,40 +32441,48 @@ return /******/ (function(modules) { // webpackBootstrap
 	"use strict";
 	var rxjs_1 = __webpack_require__(498);
 	var intervalRefreshToken = 29 * 60 * 1000;
+	var timeout = 10 * 1000;
 	var DirectLine = (function () {
-	    function DirectLine(secretOrToken, domain) {
-	        if (domain === void 0) { domain = "https://directline.botframework.com"; }
+	    function DirectLine(secretOrToken, domain, segment // DEPRECATED will be removed before release
+	        ) {
+	        if (domain === void 0) { domain = "https://directline.botframework.com/v3/directline"; }
 	        this.domain = domain;
+	        this.segment = segment;
 	        this.connected$ = new rxjs_1.BehaviorSubject(false);
-	        this.id = 0;
 	        this.secret = secretOrToken.secret;
 	        this.token = secretOrToken.secret || secretOrToken.token;
+	        if (segment) {
+	            console.log("Support for 'segment' is deprecated and will be removed before release. Please use default domain or pass entire path in domain");
+	            this.domain += "/" + segment;
+	        }
 	    }
 	    DirectLine.prototype.start = function () {
 	        var _this = this;
 	        rxjs_1.Observable.ajax({
 	            method: "POST",
-	            url: this.domain + "/api/conversations",
+	            url: this.domain + "/conversations",
+	            timeout: timeout,
 	            headers: {
 	                "Accept": "application/json",
-	                "Authorization": "BotConnector " + this.token
+	                "Authorization": "Bearer " + this.token
 	            }
 	        })
+	            .do(function (ajaxResponse) { return console.log("conversation ajaxResponse", ajaxResponse.response); })
 	            .map(function (ajaxResponse) { return ajaxResponse.response; })
-	            .retryWhen(function (error$) { return error$.delay(1000); })
 	            .subscribe(function (conversation) {
 	            _this.conversationId = conversation.conversationId;
+	            _this.token = _this.secret || conversation.token;
 	            _this.connected$.next(true);
 	            if (!_this.secret) {
 	                _this.tokenRefreshSubscription = rxjs_1.Observable.timer(intervalRefreshToken, intervalRefreshToken).flatMap(function (_) {
 	                    return rxjs_1.Observable.ajax({
 	                        method: "GET",
-	                        url: _this.domain + "/api/tokens/" + _this.conversationId + "/renew",
+	                        url: _this.domain + "/tokens/refresh",
+	                        timeout: timeout,
 	                        headers: {
-	                            "Authorization": "BotConnector " + _this.token
+	                            "Authorization": "Bearer " + _this.token
 	                        }
 	                    })
-	                        .retryWhen(function (error$) { return error$.delay(1000); })
 	                        .map(function (ajaxResponse) { return ajaxResponse.response; });
 	                }).subscribe(function (token) {
 	                    console.log("refreshing token", token, "at", new Date());
@@ -32434,7 +32492,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        });
 	        this.activity$ = this.connected$
 	            .filter(function (connected) { return connected === true; })
-	            .flatMap(function (_) { return _this.getActivities(); });
+	            .flatMap(function (_) { return _this.getActivity$(); });
 	    };
 	    DirectLine.prototype.end = function () {
 	        if (this.tokenRefreshSubscription) {
@@ -32451,86 +32509,52 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 	    };
 	    DirectLine.prototype.postMessage = function (text, from, channelData) {
-	        console.log("sending", text);
 	        return rxjs_1.Observable.ajax({
 	            method: "POST",
-	            url: this.domain + "/api/conversations/" + this.conversationId + "/messages",
+	            url: this.domain + "/conversations/" + this.conversationId + "/activities",
 	            body: {
+	                type: "message",
 	                text: text,
-	                from: from.id,
+	                from: from,
 	                conversationId: this.conversationId,
 	                channelData: channelData
 	            },
+	            timeout: timeout,
 	            headers: {
 	                "Content-Type": "application/json",
-	                "Authorization": "BotConnector " + this.token
+	                "Authorization": "Bearer " + this.token
 	            }
 	        })
-	            .retryWhen(function (error$) { return error$.delay(1000); })
-	            .mapTo((this.id++).toString());
+	            .map(function (ajaxResponse) { return ajaxResponse.response.id; });
 	    };
 	    DirectLine.prototype.postFile = function (file, from) {
 	        var formData = new FormData();
 	        formData.append('file', file);
 	        return rxjs_1.Observable.ajax({
 	            method: "POST",
-	            url: this.domain + "/api/conversations/" + this.conversationId + "/upload",
+	            url: this.domain + "/conversations/" + this.conversationId + "/upload?userId=" + from.id,
 	            body: formData,
+	            timeout: timeout,
 	            headers: {
-	                "Authorization": "BotConnector " + this.token
+	                "Authorization": "Bearer " + this.token
 	            }
 	        })
-	            .retryWhen(function (error$) { return error$.delay(1000); })
-	            .mapTo((this.id++).toString());
+	            .map(function (ajaxResponse) { return ajaxResponse.response.id; });
 	    };
-	    DirectLine.prototype.getActivities = function () {
+	    DirectLine.prototype.getActivity$ = function () {
 	        var _this = this;
 	        return new rxjs_1.Observable(function (subscriber) {
 	            return _this.activitiesGenerator(subscriber);
 	        })
 	            .concatAll()
-	            .do(function (dlm) { return console.log("DL Message", dlm); })
-	            .map(function (dlm) {
-	            if (dlm.channelData) {
-	                var channelData = dlm.channelData;
-	                switch (channelData.type) {
-	                    case "message":
-	                        return Object.assign({}, channelData, {
-	                            id: dlm.id,
-	                            conversation: { id: dlm.conversationId },
-	                            timestamp: dlm.created,
-	                            from: { id: dlm.from },
-	                            channelData: null,
-	                        });
-	                    default:
-	                        return channelData;
-	                }
-	            }
-	            else {
-	                return {
-	                    type: "message",
-	                    id: dlm.id,
-	                    conversation: { id: dlm.conversationId },
-	                    timestamp: dlm.created,
-	                    from: { id: dlm.from },
-	                    text: dlm.text,
-	                    textFormat: "markdown",
-	                    eTag: dlm.eTag,
-	                    attachments: dlm.images && dlm.images.map(function (path) { return {
-	                        contentType: "image/png",
-	                        contentUrl: _this.domain + path,
-	                        name: '2009-09-21'
-	                    }; })
-	                };
-	            }
-	        });
+	            .do(function (activity) { return console.log("Activity", activity); });
 	    };
 	    DirectLine.prototype.activitiesGenerator = function (subscriber, watermark) {
 	        var _this = this;
 	        this.getActivityGroupSubscription = this.getActivityGroup(watermark).subscribe(function (activityGroup) {
-	            var someMessages = activityGroup && activityGroup.messages && activityGroup.messages.length > 0;
+	            var someMessages = activityGroup && activityGroup.activities && activityGroup.activities.length > 0;
 	            if (someMessages)
-	                subscriber.next(rxjs_1.Observable.from(activityGroup.messages));
+	                subscriber.next(rxjs_1.Observable.from(activityGroup.activities));
 	            _this.pollTimer = setTimeout(function () { return _this.activitiesGenerator(subscriber, activityGroup && activityGroup.watermark); }, someMessages && activityGroup.watermark ? 0 : 1000);
 	        }, function (error) {
 	            return subscriber.error(error);
@@ -32540,13 +32564,13 @@ return /******/ (function(modules) { // webpackBootstrap
 	        if (watermark === void 0) { watermark = ""; }
 	        return rxjs_1.Observable.ajax({
 	            method: "GET",
-	            url: this.domain + "/api/conversations/" + this.conversationId + "/messages?watermark=" + watermark,
+	            url: this.domain + "/conversations/" + this.conversationId + "/activities?watermark=" + watermark,
+	            timeout: timeout,
 	            headers: {
 	                "Accept": "application/json",
-	                "Authorization": "BotConnector " + this.token
+	                "Authorization": "Bearer " + this.token
 	            }
 	        })
-	            .retryWhen(function (error$) { return error$.delay(1000); })
 	            .map(function (ajaxResponse) { return ajaxResponse.response; });
 	    };
 	    return DirectLine;
@@ -50605,145 +50629,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	    return AnimationFrameScheduler;
 	}(AsyncScheduler_1.AsyncScheduler));
 	exports.AnimationFrameScheduler = AnimationFrameScheduler;
-
-
-/***/ },
-/* 843 */
-/***/ function(module, exports, __webpack_require__) {
-
-	"use strict";
-	var rxjs_1 = __webpack_require__(498);
-	var intervalRefreshToken = 29 * 60 * 1000;
-	var timeout = 10 * 1000;
-	var DirectLine3 = (function () {
-	    function DirectLine3(secretOrToken, domain, segment) {
-	        if (domain === void 0) { domain = "https://directline.botframework.com"; }
-	        this.domain = domain;
-	        this.segment = segment;
-	        this.connected$ = new rxjs_1.BehaviorSubject(false);
-	        this.secret = secretOrToken.secret;
-	        this.token = secretOrToken.secret || secretOrToken.token;
-	    }
-	    DirectLine3.prototype.start = function () {
-	        var _this = this;
-	        rxjs_1.Observable.ajax({
-	            method: "POST",
-	            url: this.domain + "/" + this.segment + "/conversations",
-	            timeout: timeout,
-	            headers: {
-	                "Accept": "application/json",
-	                "Authorization": "Bearer " + this.token
-	            }
-	        })
-	            .do(function (ajaxResponse) { return console.log("conversation ajaxResponse", ajaxResponse.response); })
-	            .map(function (ajaxResponse) { return ajaxResponse.response; })
-	            .subscribe(function (conversation) {
-	            _this.conversationId = conversation.conversationId;
-	            _this.token = _this.secret || conversation.token;
-	            _this.connected$.next(true);
-	            if (!_this.secret) {
-	                _this.tokenRefreshSubscription = rxjs_1.Observable.timer(intervalRefreshToken, intervalRefreshToken).flatMap(function (_) {
-	                    return rxjs_1.Observable.ajax({
-	                        method: "GET",
-	                        url: _this.domain + "/" + _this.segment + "/tokens/" + _this.conversationId + "/refresh",
-	                        timeout: timeout,
-	                        headers: {
-	                            "Authorization": "Bearer " + _this.token
-	                        }
-	                    })
-	                        .map(function (ajaxResponse) { return ajaxResponse.response; });
-	                }).subscribe(function (token) {
-	                    console.log("refreshing token", token, "at", new Date());
-	                    _this.token = token;
-	                });
-	            }
-	        });
-	        this.activity$ = this.connected$
-	            .filter(function (connected) { return connected === true; })
-	            .flatMap(function (_) { return _this.getActivity$(); });
-	    };
-	    DirectLine3.prototype.end = function () {
-	        if (this.tokenRefreshSubscription) {
-	            this.tokenRefreshSubscription.unsubscribe();
-	            this.tokenRefreshSubscription = undefined;
-	        }
-	        if (this.getActivityGroupSubscription) {
-	            this.getActivityGroupSubscription.unsubscribe();
-	            this.getActivityGroupSubscription = undefined;
-	        }
-	        if (this.pollTimer) {
-	            clearTimeout(this.pollTimer);
-	            this.pollTimer = undefined;
-	        }
-	    };
-	    DirectLine3.prototype.postMessage = function (text, from, channelData) {
-	        return rxjs_1.Observable.ajax({
-	            method: "POST",
-	            url: this.domain + "/" + this.segment + "/conversations/" + this.conversationId + "/activities",
-	            body: {
-	                type: "message",
-	                text: text,
-	                from: from,
-	                conversationId: this.conversationId,
-	                channelData: channelData
-	            },
-	            timeout: timeout,
-	            headers: {
-	                "Content-Type": "application/json",
-	                "Authorization": "Bearer " + this.token
-	            }
-	        })
-	            .map(function (ajaxResponse) { return ajaxResponse.response.id; });
-	    };
-	    DirectLine3.prototype.postFile = function (file, from) {
-	        var formData = new FormData();
-	        formData.append('file', file);
-	        return rxjs_1.Observable.ajax({
-	            method: "POST",
-	            url: this.domain + "/" + this.segment + "/conversations/" + this.conversationId + "/upload?userId=" + from.id,
-	            body: formData,
-	            timeout: timeout,
-	            headers: {
-	                "Authorization": "Bearer " + this.token
-	            }
-	        })
-	            .map(function (ajaxResponse) { return ajaxResponse.response.id; });
-	    };
-	    DirectLine3.prototype.getActivity$ = function () {
-	        var _this = this;
-	        return new rxjs_1.Observable(function (subscriber) {
-	            return _this.activitiesGenerator(subscriber);
-	        })
-	            .concatAll()
-	            .do(function (activity) { return console.log("Activity", activity); });
-	    };
-	    DirectLine3.prototype.activitiesGenerator = function (subscriber, watermark) {
-	        var _this = this;
-	        this.getActivityGroupSubscription = this.getActivityGroup(watermark).subscribe(function (activityGroup) {
-	            var someMessages = activityGroup && activityGroup.activities && activityGroup.activities.length > 0;
-	            if (someMessages)
-	                subscriber.next(rxjs_1.Observable.from(activityGroup.activities));
-	            _this.pollTimer = setTimeout(function () { return _this.activitiesGenerator(subscriber, activityGroup && activityGroup.watermark); }, someMessages && activityGroup.watermark ? 0 : 1000);
-	        }, function (error) {
-	            return subscriber.error(error);
-	        });
-	    };
-	    DirectLine3.prototype.getActivityGroup = function (watermark) {
-	        if (watermark === void 0) { watermark = ""; }
-	        return rxjs_1.Observable.ajax({
-	            method: "GET",
-	            url: this.domain + "/" + this.segment + "/conversations/" + this.conversationId + "/activities?watermark=" + watermark,
-	            timeout: timeout,
-	            headers: {
-	                "Accept": "application/json",
-	                "Authorization": "Bearer " + this.token
-	            }
-	        })
-	            .map(function (ajaxResponse) { return ajaxResponse.response; });
-	    };
-	    return DirectLine3;
-	}());
-	exports.DirectLine3 = DirectLine3;
 
 
 /***/ }
