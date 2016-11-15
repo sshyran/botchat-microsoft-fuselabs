@@ -139,11 +139,11 @@ export const AttachmentView = (props: {
                         </tbody>
                         <tfoot>
                             <tr>
-                                <td>Tax</td>
+                                <td>{ state.format.strings.receiptTax }</td>
                                 <td>{ attachment.content.tax }</td>
                             </tr>
                             <tr className="total">
-                                <td>Total</td>
+                                <td>{ state.format.strings.receiptTotal }</td>
                                 <td>{ attachment.content.total }</td>
                             </tr>
                         </tfoot>
@@ -165,7 +165,6 @@ export const AttachmentView = (props: {
             return videoWithOnLoad(attachment.contentUrl);
 
         default:
-            return <span>[File of type '{ (attachment as any).contentType }']</span>;
-
+            return <span>{ state.format.strings.unknownFile.replace('%1', (attachment as any).contentType) }</span>;
     }
 }

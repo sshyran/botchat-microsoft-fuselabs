@@ -1,6 +1,13 @@
 export interface Strings {
     title: string,
-    send: string
+    send: string,
+    unknownFile: string,
+    receiptTax: string,
+    receiptTotal: string
+    messageRetry: string,
+    messageFailed: string,
+    messageSending: string,
+    timeSent: string,
 }
 
 interface LocalizedStrings {
@@ -10,7 +17,14 @@ interface LocalizedStrings {
 const localizedStrings: LocalizedStrings = {
     'en-us': {
         title: "Chat",
-        send: "Send"
+        send: "Send",
+        unknownFile: "[File of type '%1']",
+        receiptTax: "Tax",
+        receiptTotal: "Total",
+        messageRetry: "retry",
+        messageFailed: "couldn't send",
+        messageSending: "sending",
+        timeSent: " at %1",
     }
 }
 

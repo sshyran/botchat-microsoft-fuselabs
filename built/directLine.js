@@ -1,20 +1,15 @@
 "use strict";
 var rxjs_1 = require('@reactivex/rxjs');
 var intervalRefreshToken = 29 * 60 * 1000;
-var timeout = 10 * 1000;
+var timeout = 5 * 1000;
 var DirectLine = (function () {
-    function DirectLine(secretOrToken, domain, segment // DEPRECATED will be removed before release
-        ) {
+    function DirectLine(secretOrToken, domain) {
         if (domain === void 0) { domain = "https://directline.botframework.com/v3/directline"; }
         this.domain = domain;
-        this.segment = segment;
         this.connected$ = new rxjs_1.BehaviorSubject(false);
+        this.watermark = '';
         this.secret = secretOrToken.secret;
         this.token = secretOrToken.secret || secretOrToken.token;
-        if (segment) {
-            console.log("Support for 'segment' is deprecated and will be removed before release. Please use default domain or pass entire path in domain");
-            this.domain += "/" + segment;
-        }
     }
     DirectLine.prototype.start = function () {
         var _this = this;
@@ -36,14 +31,14 @@ var DirectLine = (function () {
             if (!_this.secret) {
                 _this.tokenRefreshSubscription = rxjs_1.Observable.timer(intervalRefreshToken, intervalRefreshToken).flatMap(function (_) {
                     return rxjs_1.Observable.ajax({
-                        method: "GET",
+                        method: "POST",
                         url: _this.domain + "/tokens/refresh",
                         timeout: timeout,
                         headers: {
                             "Authorization": "Bearer " + _this.token
                         }
                     })
-                        .map(function (ajaxResponse) { return ajaxResponse.response; });
+                        .map(function (ajaxResponse) { return ajaxResponse.response.token; });
                 }).subscribe(function (token) {
                     console.log("refreshing token", token, "at", new Date());
                     _this.token = token;
@@ -68,38 +63,58 @@ var DirectLine = (function () {
             this.pollTimer = undefined;
         }
     };
-    DirectLine.prototype.postMessage = function (text, from, channelData) {
+    DirectLine.prototype.postMessageWithAttachments = function (message) {
+        var _this = this;
+        var formData = new FormData();
+        formData.append('activity', new Blob([JSON.stringify(Object.assign({}, message, { attachments: undefined }))], { type: 'application/vnd.microsoft.activity' }));
+        return rxjs_1.Observable.from(message.attachments || [])
+            .flatMap(function (media) {
+            return rxjs_1.Observable.ajax({
+                method: "GET",
+                url: media.contentUrl,
+                responseType: 'arraybuffer'
+            })
+                .do(function (ajaxResponse) {
+                return formData.append('file', new Blob([ajaxResponse.response], { type: media.contentType }), media.name);
+            });
+        })
+            .count()
+            .flatMap(function (count) {
+            return rxjs_1.Observable.ajax({
+                method: "POST",
+                url: _this.domain + "/conversations/" + _this.conversationId + "/upload?userId=" + message.from.id,
+                body: formData,
+                timeout: timeout,
+                headers: {
+                    "Authorization": "Bearer " + _this.token
+                }
+            });
+        })
+            .map(function (ajaxResponse) { return ajaxResponse.response.id; })
+            .catch(function (error) {
+            console.log("postMessageWithAttachments error", error);
+            return error.status >= 400 && error.status < 500
+                ? rxjs_1.Observable.throw(error)
+                : rxjs_1.Observable.of("retry");
+        });
+    };
+    DirectLine.prototype.postActivity = function (activity) {
         return rxjs_1.Observable.ajax({
             method: "POST",
             url: this.domain + "/conversations/" + this.conversationId + "/activities",
-            body: {
-                type: "message",
-                text: text,
-                from: from,
-                conversationId: this.conversationId,
-                channelData: channelData
-            },
+            body: activity,
             timeout: timeout,
             headers: {
                 "Content-Type": "application/json",
                 "Authorization": "Bearer " + this.token
             }
         })
-            .map(function (ajaxResponse) { return ajaxResponse.response.id; });
-    };
-    DirectLine.prototype.postFile = function (file, from) {
-        var formData = new FormData();
-        formData.append('file', file);
-        return rxjs_1.Observable.ajax({
-            method: "POST",
-            url: this.domain + "/conversations/" + this.conversationId + "/upload?userId=" + from.id,
-            body: formData,
-            timeout: timeout,
-            headers: {
-                "Authorization": "Bearer " + this.token
-            }
-        })
-            .map(function (ajaxResponse) { return ajaxResponse.response.id; });
+            .map(function (ajaxResponse) { return ajaxResponse.response.id; })
+            .catch(function (error) {
+            return error.status >= 400 && error.status < 500
+                ? rxjs_1.Observable.throw(error)
+                : rxjs_1.Observable.of("retry");
+        });
     };
     DirectLine.prototype.getActivity$ = function () {
         var _this = this;
@@ -109,29 +124,38 @@ var DirectLine = (function () {
             .concatAll()
             .do(function (activity) { return console.log("Activity", activity); });
     };
-    DirectLine.prototype.activitiesGenerator = function (subscriber, watermark) {
+    DirectLine.prototype.activitiesGenerator = function (subscriber) {
         var _this = this;
-        this.getActivityGroupSubscription = this.getActivityGroup(watermark).subscribe(function (activityGroup) {
+        this.getActivityGroupSubscription = this.getActivityGroup().subscribe(function (activityGroup) {
+            _this.watermark = activityGroup.watermark;
             var someMessages = activityGroup && activityGroup.activities && activityGroup.activities.length > 0;
             if (someMessages)
                 subscriber.next(rxjs_1.Observable.from(activityGroup.activities));
-            _this.pollTimer = setTimeout(function () { return _this.activitiesGenerator(subscriber, activityGroup && activityGroup.watermark); }, someMessages && activityGroup.watermark ? 0 : 1000);
+            _this.pollTimer = setTimeout(function () { return _this.activitiesGenerator(subscriber); }, someMessages && _this.watermark ? 0 : 1000);
         }, function (error) {
             return subscriber.error(error);
         });
     };
-    DirectLine.prototype.getActivityGroup = function (watermark) {
-        if (watermark === void 0) { watermark = ""; }
+    DirectLine.prototype.getActivityGroup = function () {
         return rxjs_1.Observable.ajax({
             method: "GET",
-            url: this.domain + "/conversations/" + this.conversationId + "/activities?watermark=" + watermark,
+            url: this.domain + "/conversations/" + this.conversationId + "/activities?watermark=" + this.watermark,
             timeout: timeout,
             headers: {
                 "Accept": "application/json",
                 "Authorization": "Bearer " + this.token
             }
         })
-            .map(function (ajaxResponse) { return ajaxResponse.response; });
+            .map(function (ajaxResponse) { return ajaxResponse.response; })
+            .retryWhen(function (error$) {
+            return error$
+                .mergeMap(function (error) {
+                return error.status === 403
+                    ? rxjs_1.Observable.throw(error)
+                    : rxjs_1.Observable.of(error);
+            })
+                .delay(5 * 1000);
+        });
     };
     return DirectLine;
 }());

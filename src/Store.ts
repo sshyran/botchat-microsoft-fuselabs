@@ -100,7 +100,8 @@ export const connectionReducer: Reducer<ConnectionState> = (
 export interface HistoryState {
     activities: Activity[],
     input: string,
-    sendCounter: number,
+    clientActivityBase: string,
+    clientActivityCounter: number,
     selectedActivity: Activity
 }
 
@@ -108,14 +109,14 @@ export type HistoryAction = {
     type: 'Update_Input',
     input: string
 } | {
-    type: 'Receive_Message' | 'Send_Message' | 'Show_Typing'
+    type: 'Receive_Message' | 'Send_Message' | 'Show_Typing' | 'Receive_Sent_Message'
     activity: Activity
 } | {
     type: 'Send_Message_Try' | 'Send_Message_Fail',
-    sendId: number
+    clientActivityId: string
 } | {
     type: 'Send_Message_Succeed'
-    sendId: number
+    clientActivityId: string
     id: string
 } | {
     type: 'Select_Activity',
@@ -129,7 +130,8 @@ export const historyReducer: Reducer<HistoryState> = (
     state: HistoryState = {
         activities: [],
         input: '',
-        sendCounter: 0,
+        clientActivityBase: Date.now().toString() + Math.random().toString().substr(1) + '.',
+        clientActivityCounter: 0,
         selectedActivity: null
     },
     action: HistoryAction
@@ -140,14 +142,32 @@ export const historyReducer: Reducer<HistoryState> = (
             return Object.assign({}, state, {
                 input: action.input
             });
-
+        case 'Receive_Sent_Message': {
+            const i = state.activities.findIndex(activity =>
+                activity.channelData && action.activity.channelData && activity.channelData.clientActivityId === action.activity.channelData.clientActivityId
+            );
+            if (i !== -1) {
+                const activity = state.activities[i];
+                return Object.assign({}, state, {
+                    activities: [
+                        ... state.activities.slice(0, i),
+                        action.activity,
+                        ... state.activities.slice(i + 1)
+                    ],
+                    selectedActivity: state.selectedActivity === activity ? action.activity : state.selectedActivity
+                });
+            }
+            // else fall through and treat this as a new message
+        }
         case 'Receive_Message':
+            if (state.activities.find(a => a.id === action.activity.id)) {
+                 // don't allow duplicate messages
+                 return state;
+            }
             return Object.assign({}, state, { 
                 activities: [
                     ... state.activities.filter(activity => activity.type !== "typing"),
-                    Object.assign({}, action.activity, {
-                        status: "received"
-                    }),
+                    action.activity,
                     ... state.activities.filter(activity => activity.from.id !== action.activity.from.id && activity.type === "typing"),
                 ]
             });
@@ -157,40 +177,39 @@ export const historyReducer: Reducer<HistoryState> = (
                 activities: [
                     ... state.activities.filter(activity => activity.type !== "typing"),
                     Object.assign({}, action.activity, {
-                        status: "sending",
-                        sendId: state.sendCounter
+                        timestamp: (new Date()).toISOString(),
+                        channelData: { clientActivityId: state.clientActivityBase + state.clientActivityCounter }
                     }),
                     ... state.activities.filter(activity => activity.type === "typing"),
                 ],
                 input: '',
-                sendCounter: state.sendCounter + 1
+                clientActivityCounter: state.clientActivityCounter + 1
             });
 
         case 'Send_Message_Try':
         {
-            const activity = state.activities.find(activity => activity["sendId"] === action.sendId);
-            const newActivity = Object.assign({}, activity, {
-                status: "sending",
-                sendId: state.sendCounter
-            });
+            const activity = state.activities.find(activity =>
+                activity.channelData && activity.channelData.clientActivityId === action.clientActivityId
+            );
+            const newActivity = activity.id === undefined ? activity : Object.assign({}, activity, { id: undefined });
             return Object.assign({}, state, {
                 activities: [
-                    ... state.activities.filter(activity => activity["sendId"] !== action.sendId && activity.type !== "typing"),
+                    ... state.activities.filter(activityT => activityT.type !== "typing" && activityT !== activity),
                     newActivity,
                     ... state.activities.filter(activity => activity.type === "typing")
                 ],
-                sendCounter: state.sendCounter + 1,
                 selectedActivity: state.selectedActivity === activity ? newActivity : state.selectedActivity
             });
         }
         case 'Send_Message_Succeed':
         case 'Send_Message_Fail': {
-            const i = state.activities.findIndex(activity => activity["sendId"] === action.sendId);
+            const i = state.activities.findIndex(activity =>
+                activity.channelData && activity.channelData.clientActivityId === action.clientActivityId
+            );
             if (i === -1) return state;
             const activity = state.activities[i];
             const newActivity = Object.assign({}, activity, {
-                status: action.type === 'Send_Message_Succeed' ? "sent" : "retry",
-                id: action.type === 'Send_Message_Succeed' ? action.id : undefined                        
+                id: action.type === 'Send_Message_Succeed' ? action.id : null                        
             })
             return Object.assign({}, state, {
                 activities: [
@@ -198,7 +217,7 @@ export const historyReducer: Reducer<HistoryState> = (
                     newActivity,
                     ... state.activities.slice(i + 1)
                 ],
-                sendCounter: state.sendCounter + 1,
+                clientActivityCounter: state.clientActivityCounter + 1,
                 selectedActivity: state.selectedActivity === activity ? newActivity : state.selectedActivity
             });
         }
@@ -207,9 +226,8 @@ export const historyReducer: Reducer<HistoryState> = (
                 activities: [
                     ... state.activities.filter(activity => activity.type !== "typing"),
                     ... state.activities.filter(activity => activity.from.id !== action.activity.from.id && activity.type === "typing"),
-                    Object.assign({}, action.activity, {
-                        status: "received"
-                    })                ]
+                    action.activity
+                ]
             });
 
         case 'Clear_Typing': {
