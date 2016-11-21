@@ -104,7 +104,21 @@ export interface VideoCard {
     }
 }
 
-export type Attachment = Media | HeroCard | Thumbnail | Signin | Receipt | AudioCard | VideoCard;
+export interface AnimationCard {
+    contentType: "application/vnd.microsoft.card.animation",
+    content: {
+        title?: string,
+        subtitle?: string,
+        text?: string,
+        media?: { url: string, profile?: string }[],
+        buttons?: Button[],
+        image?: { url: string, alt?: string },
+        autoloop?: boolean,
+        autostart?: boolean
+    }
+}
+
+export type Attachment = Media | HeroCard | Thumbnail | Signin | Receipt | AudioCard | VideoCard | AnimationCard;
 
 export interface User {
     id: string,
@@ -141,11 +155,17 @@ export interface Typing extends IActivity {
 
 export type Activity = Message | Typing;
 
+export enum ConnectionStatus {
+    Connecting,
+    Online,
+    Offline
+} 
+
 export interface IBotConnection {
-    start();
-    end();
-    connected$: BehaviorSubject<boolean>;
-    activity$: Observable<Activity>;
-    postMessageWithAttachments: (message: Activity) => Observable<string>,
-    postActivity: (activity: Activity) => Observable<string>,
+    connectionStatus$: BehaviorSubject<ConnectionStatus>,
+    activity$: Observable<Activity>,
+    start(): void,
+    end(): void,
+    postMessageWithAttachments(message: Activity): Observable<string>,
+    postActivity(activity: Activity): Observable<string>
 }

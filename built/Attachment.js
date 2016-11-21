@@ -23,24 +23,31 @@ exports.AttachmentView = function (props) {
                 window.open(value);
                 break;
             default:
-                console.log("unknown button type");
+                Chat_1.konsole.log("unknown button type");
         }
     };
     var buttons = function (buttons) { return buttons &&
-        React.createElement("ul", {className: "wc-card-buttons"}, buttons.map(function (button) { return React.createElement("li", null, 
+        React.createElement("ul", {className: "wc-card-buttons"}, buttons.map(function (button, index) { return React.createElement("li", {key: index}, 
             React.createElement("button", {onClick: function () { return onClickButton(button.type, button.value); }}, button.title)
         ); })); };
-    var imageWithOnLoad = function (url) {
-        return React.createElement("img", {src: url, onLoad: function () { return props.onImageLoad(); }});
+    var imageWithOnLoad = function (url, thumbnailUrl, autoPlay, loop) {
+        return React.createElement("img", {src: url, autoPlay: autoPlay, loop: loop, poster: thumbnailUrl, onLoad: function () { return props.onImageLoad(); }});
     };
     var audio = function (audioUrl, autoPlay, loop) {
         return React.createElement("audio", {src: audioUrl, autoPlay: autoPlay, controls: true, loop: loop});
     };
     var videoWithOnLoad = function (videoUrl, thumbnailUrl, autoPlay, loop) {
-        return React.createElement("video", {src: videoUrl, poster: thumbnailUrl, autoPlay: autoPlay, controls: true, loop: loop, onLoadedMetadata: function () { console.log("local onVideoLoad"); props.onImageLoad(); }});
+        return React.createElement("video", {src: videoUrl, poster: thumbnailUrl, autoPlay: autoPlay, controls: true, loop: loop, onLoadedMetadata: function () { Chat_1.konsole.log("local onVideoLoad"); props.onImageLoad(); }});
     };
     var attachedImage = function (images) {
         return images && images.length > 0 && imageWithOnLoad(images[0].url);
+    };
+    var isGifMedia = function (url) {
+        return url.slice((url.lastIndexOf(".") - 1 >>> 0) + 2).toLowerCase() == 'gif';
+    };
+    var isUnsupportedCardContentType = function (contentType) {
+        var searchPattern = new RegExp('^application/vnd\.microsoft\.card\.', 'i');
+        return searchPattern.test(contentType);
     };
     switch (attachment.contentType) {
         case "application/vnd.microsoft.card.hero":
@@ -67,6 +74,16 @@ exports.AttachmentView = function (props) {
                 return null;
             return (React.createElement("div", {className: 'wc-card video'}, 
                 videoWithOnLoad(attachment.content.media[0].url, attachment.content.image ? attachment.content.image.url : null, attachment.content.autostart, attachment.content.autoloop), 
+                React.createElement("h1", null, attachment.content.title), 
+                React.createElement("h2", null, attachment.content.subtitle), 
+                React.createElement("p", null, attachment.content.text), 
+                buttons(attachment.content.buttons)));
+        case "application/vnd.microsoft.card.animation":
+            if (!attachment.content || !attachment.content.media || attachment.content.media.length === 0)
+                return null;
+            var contentFunction = isGifMedia(attachment.content.media[0].url) ? imageWithOnLoad : videoWithOnLoad;
+            return (React.createElement("div", {className: 'wc-card animation'}, 
+                contentFunction(attachment.content.media[0].url, attachment.content.image ? attachment.content.image.url : null, attachment.content.autostart, attachment.content.autoloop), 
                 React.createElement("h1", null, attachment.content.title), 
                 React.createElement("h2", null, attachment.content.subtitle), 
                 React.createElement("p", null, attachment.content.text), 
@@ -124,7 +141,12 @@ exports.AttachmentView = function (props) {
         case "video/mp4":
             return videoWithOnLoad(attachment.contentUrl);
         default:
-            return React.createElement("span", null, state.format.strings.unknownFile.replace('%1', attachment.contentType));
+            if (isUnsupportedCardContentType(attachment['contentType'])) {
+                return React.createElement("span", null, state.format.strings.unknownCard.replace('%1', attachment.contentType));
+            }
+            else {
+                return React.createElement("span", null, state.format.strings.unknownFile.replace('%1', attachment.contentType));
+            }
     }
 };
 //# sourceMappingURL=Attachment.js.map

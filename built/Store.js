@@ -1,7 +1,9 @@
 "use strict";
 var redux_1 = require('redux');
+var BotConnection_1 = require('./BotConnection');
+var Chat_1 = require('./Chat');
 var Strings_1 = require('./Strings');
-exports.formatReducer = function (state, action) {
+exports.format = function (state, action) {
     if (state === void 0) { state = {
         options: {
             showHeader: true
@@ -17,41 +19,42 @@ exports.formatReducer = function (state, action) {
             return state;
     }
 };
-exports.connectionReducer = function (state, action) {
+exports.connection = function (state, action) {
     if (state === void 0) { state = {
-        connected: false,
+        connectionStatus: BotConnection_1.ConnectionStatus.Connecting,
         botConnection: undefined,
         selectedActivity: undefined,
         user: undefined,
-        bot: undefined,
-        host: undefined
+        bot: undefined
     }; }
     switch (action.type) {
         case 'Start_Connection':
             return Object.assign({}, state, {
-                connected: false,
+                connectionStatus: false,
                 botConnection: action.botConnection,
                 user: action.user,
                 bot: action.bot,
                 selectedActivity: action.selectedActivity
             });
-        case 'Connected_To_Bot':
+        case 'Connection_Change':
             return Object.assign({}, state, {
-                connected: true
+                connectionStatus: action.connectionStatus
             });
-        case 'Subscribe_Host':
-            return Object.assign({}, state, {
-                host: action.host
-            });
-        case 'Unsubscribe_Host':
-            return Object.assign({}, state, {
-                host: undefined
-            });
+        /*      experimental backchannel support
+                case 'Subscribe_Host':
+                    return Object.assign({}, state, {
+                        host: action.host
+                    });
+                case 'Unsubscribe_Host':
+                    return Object.assign({}, state, {
+                        host: undefined
+                    });
+        */
         default:
             return state;
     }
 };
-exports.historyReducer = function (state, action) {
+exports.history = function (state, action) {
     if (state === void 0) { state = {
         activities: [],
         input: '',
@@ -59,7 +62,7 @@ exports.historyReducer = function (state, action) {
         clientActivityCounter: 0,
         selectedActivity: null
     }; }
-    console.log("history action", action);
+    Chat_1.konsole.log("history action", action);
     switch (action.type) {
         case 'Update_Input':
             return Object.assign({}, state, {
@@ -80,10 +83,8 @@ exports.historyReducer = function (state, action) {
             }
         }
         case 'Receive_Message':
-            if (state.activities.find(function (a) { return a.id === action.activity.id; })) {
-                // don't allow duplicate messages
-                return state;
-            }
+            if (state.activities.find(function (a) { return a.id === action.activity.id; }))
+                return state; // don't allow duplicate messages
             return Object.assign({}, state, {
                 activities: state.activities.filter(function (activity) { return activity.type !== "typing"; }).concat([
                     action.activity
@@ -100,19 +101,18 @@ exports.historyReducer = function (state, action) {
                 input: '',
                 clientActivityCounter: state.clientActivityCounter + 1
             });
-        case 'Send_Message_Try':
-            {
-                var activity_1 = state.activities.find(function (activity) {
-                    return activity.channelData && activity.channelData.clientActivityId === action.clientActivityId;
-                });
-                var newActivity = activity_1.id === undefined ? activity_1 : Object.assign({}, activity_1, { id: undefined });
-                return Object.assign({}, state, {
-                    activities: state.activities.filter(function (activityT) { return activityT.type !== "typing" && activityT !== activity_1; }).concat([
-                        newActivity
-                    ], state.activities.filter(function (activity) { return activity.type === "typing"; })),
-                    selectedActivity: state.selectedActivity === activity_1 ? newActivity : state.selectedActivity
-                });
-            }
+        case 'Send_Message_Try': {
+            var activity_1 = state.activities.find(function (activity) {
+                return activity.channelData && activity.channelData.clientActivityId === action.clientActivityId;
+            });
+            var newActivity = activity_1.id === undefined ? activity_1 : Object.assign({}, activity_1, { id: undefined });
+            return Object.assign({}, state, {
+                activities: state.activities.filter(function (activityT) { return activityT.type !== "typing" && activityT !== activity_1; }).concat([
+                    newActivity
+                ], state.activities.filter(function (activity) { return activity.type === "typing"; })),
+                selectedActivity: state.selectedActivity === activity_1 ? newActivity : state.selectedActivity
+            });
+        }
         case 'Send_Message_Succeed':
         case 'Send_Message_Fail': {
             var i = state.activities.findIndex(function (activity) {
@@ -121,6 +121,8 @@ exports.historyReducer = function (state, action) {
             if (i === -1)
                 return state;
             var activity = state.activities[i];
+            if (activity.id && activity.id != "retry")
+                return state;
             var newActivity = Object.assign({}, activity, {
                 id: action.type === 'Send_Message_Succeed' ? action.id : null
             });
@@ -138,13 +140,11 @@ exports.historyReducer = function (state, action) {
                     action.activity
                 ])
             });
-        case 'Clear_Typing': {
-            var activities = state.activities.filter(function (activity) { return activity.from.id !== action.from.id || activity.type !== "typing"; });
+        case 'Clear_Typing':
             return Object.assign({}, state, {
-                activities: activities,
-                selectedActivity: activities.includes(state.selectedActivity) ? state.selectedActivity : null
+                activities: state.activities.filter(function (activity) { return activity.id !== action.id; }),
+                selectedActivity: state.selectedActivity && state.selectedActivity.id === action.id ? null : state.selectedActivity
             });
-        }
         case 'Select_Activity':
             if (action.selectedActivity === state.selectedActivity)
                 return state;
@@ -157,9 +157,9 @@ exports.historyReducer = function (state, action) {
 };
 exports.createStore = function () {
     return redux_1.createStore(redux_1.combineReducers({
-        format: exports.formatReducer,
-        connection: exports.connectionReducer,
-        history: exports.historyReducer
+        format: exports.format,
+        connection: exports.connection,
+        history: exports.history
     }));
 };
 //# sourceMappingURL=Store.js.map

@@ -1,6 +1,6 @@
 import { Store, Reducer, createStore as reduxCreateStore, combineReducers } from 'redux';
-import { Activity, IBotConnection, User } from './BotConnection';
-import { FormatOptions, ActivityOrID } from './Chat';
+import { Activity, IBotConnection, User, ConnectionStatus } from './BotConnection';
+import { FormatOptions, ActivityOrID, konsole } from './Chat';
 import { strings, Strings } from './Strings';
 import { BehaviorSubject } from '@reactivex/rxjs';
 
@@ -19,7 +19,7 @@ export type FormatAction = {
     strings: Strings
 }
 
-export const formatReducer: Reducer<FormatState> = (
+export const format: Reducer<FormatState> = (
     state: FormatState = {
         options: {
             showHeader: true
@@ -39,12 +39,14 @@ export const formatReducer: Reducer<FormatState> = (
 }
 
 export interface ConnectionState {
-    connected: boolean
+    connectionStatus: ConnectionStatus,
     botConnection: IBotConnection,
     selectedActivity: BehaviorSubject<ActivityOrID>,
     user: User,
     bot: User,
+/*  experimental backchannel support
     host: Window
+*/
 }
 
 export type ConnectionAction = {
@@ -54,36 +56,44 @@ export type ConnectionAction = {
     bot: User,
     selectedActivity: BehaviorSubject<ActivityOrID>
 } | {
-    type: 'Connected_To_Bot' | 'Unsubscribe_Host'
+    type: 'Connection_Change',
+    connectionStatus: ConnectionStatus
+/*  experimental backchannel support
+} | {
+    type: 'Unsubscribe_Host'
 } | {
     type: 'Subscribe_Host',
     host: Window
+*/
 }
 
-export const connectionReducer: Reducer<ConnectionState> = (
+export const connection: Reducer<ConnectionState> = (
     state: ConnectionState = {
-        connected: false,
+        connectionStatus: ConnectionStatus.Connecting,
         botConnection: undefined,
         selectedActivity: undefined,
         user: undefined,
-        bot: undefined,
+        bot: undefined
+/*      experimental backchannel support
         host: undefined
+*/
     },
     action: ConnectionAction
 ) => {
     switch (action.type) {
         case 'Start_Connection':
             return Object.assign({}, state, {
-                connected: false,
+                connectionStatus: false,
                 botConnection: action.botConnection,
                 user: action.user,
                 bot: action.bot,
                 selectedActivity: action.selectedActivity
             });
-        case 'Connected_To_Bot':
+        case 'Connection_Change':
             return Object.assign({}, state, {
-                connected: true
+                connectionStatus: action.connectionStatus
             });
+/*      experimental backchannel support
         case 'Subscribe_Host':
             return Object.assign({}, state, {
                 host: action.host
@@ -92,6 +102,7 @@ export const connectionReducer: Reducer<ConnectionState> = (
             return Object.assign({}, state, {
                 host: undefined
             });
+*/
         default:
             return state;
     }
@@ -123,10 +134,10 @@ export type HistoryAction = {
     selectedActivity: Activity
 } | {
     type: 'Clear_Typing',
-    from: User
+    id: string
 }
 
-export const historyReducer: Reducer<HistoryState> = (
+export const history: Reducer<HistoryState> = (
     state: HistoryState = {
         activities: [],
         input: '',
@@ -136,12 +147,14 @@ export const historyReducer: Reducer<HistoryState> = (
     },
     action: HistoryAction
 ) => {
-    console.log("history action", action);
+    konsole.log("history action", action);
     switch (action.type) {
+
         case 'Update_Input':
             return Object.assign({}, state, {
                 input: action.input
             });
+
         case 'Receive_Sent_Message': {
             const i = state.activities.findIndex(activity =>
                 activity.channelData && action.activity.channelData && activity.channelData.clientActivityId === action.activity.channelData.clientActivityId
@@ -160,10 +173,8 @@ export const historyReducer: Reducer<HistoryState> = (
             // else fall through and treat this as a new message
         }
         case 'Receive_Message':
-            if (state.activities.find(a => a.id === action.activity.id)) {
-                 // don't allow duplicate messages
-                 return state;
-            }
+            if (state.activities.find(a => a.id === action.activity.id)) return state; // don't allow duplicate messages
+
             return Object.assign({}, state, { 
                 activities: [
                     ... state.activities.filter(activity => activity.type !== "typing"),
@@ -186,8 +197,7 @@ export const historyReducer: Reducer<HistoryState> = (
                 clientActivityCounter: state.clientActivityCounter + 1
             });
 
-        case 'Send_Message_Try':
-        {
+        case 'Send_Message_Try': {
             const activity = state.activities.find(activity =>
                 activity.channelData && activity.channelData.clientActivityId === action.clientActivityId
             );
@@ -207,7 +217,10 @@ export const historyReducer: Reducer<HistoryState> = (
                 activity.channelData && activity.channelData.clientActivityId === action.clientActivityId
             );
             if (i === -1) return state;
+
             const activity = state.activities[i];
+            if (activity.id && activity.id != "retry") return state;
+
             const newActivity = Object.assign({}, activity, {
                 id: action.type === 'Send_Message_Succeed' ? action.id : null                        
             })
@@ -230,16 +243,14 @@ export const historyReducer: Reducer<HistoryState> = (
                 ]
             });
 
-        case 'Clear_Typing': {
-            const activities = state.activities.filter(activity => activity.from.id !== action.from.id || activity.type !== "typing")
+        case 'Clear_Typing':
             return Object.assign({}, state, { 
-                activities,
-                selectedActivity: activities.includes(state.selectedActivity) ? state.selectedActivity : null
+                activities: state.activities.filter(activity => activity.id !== action.id),
+                selectedActivity: state.selectedActivity && state.selectedActivity.id === action.id ? null : state.selectedActivity
             });
-        }
+
         case 'Select_Activity':
-            if (action.selectedActivity === state.selectedActivity)
-                return state;
+            if (action.selectedActivity === state.selectedActivity) return state;
             return Object.assign({}, state, {
                 selectedActivity: action.selectedActivity
             });
@@ -258,7 +269,7 @@ export interface ChatState {
 export const createStore = () =>
     reduxCreateStore(
         combineReducers<ChatState>({
-            format: formatReducer,
-            connection: connectionReducer,
-            history: historyReducer
+            format,
+            connection,
+            history
         }));
