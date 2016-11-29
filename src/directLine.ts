@@ -16,8 +16,8 @@ const intervalRefreshToken = 29*60*1000;
 const timeout = 5*1000;
 
 export class DirectLine implements IBotConnection {
-    public connectionStatus$: BehaviorSubject<ConnectionStatus>;
-    public activity$: Observable<Activity>;
+    public connectionStatus$ = new BehaviorSubject(ConnectionStatus.Connecting);
+    public activity$ = this.getActivity$();
 
     private conversationId: string;
     private secret: string;
@@ -33,8 +33,6 @@ export class DirectLine implements IBotConnection {
     ) {
         this.secret = secretOrToken.secret;
         this.token = secretOrToken.secret || secretOrToken.token;
-        this.connectionStatus$ = new BehaviorSubject(ConnectionStatus.Connecting);
-        this.activity$ = this.getActivity$();
     }
 
     start() {
@@ -128,28 +126,32 @@ export class DirectLine implements IBotConnection {
 
         return this.connectionStatus$
         .filter(connectionStatus => connectionStatus === ConnectionStatus.Online)
-        .flatMap(_ => Observable.from(message.attachments || []))
-        .flatMap((media: Media) => 
-            Observable.ajax({
-                method: "GET",
-                url: media.contentUrl,
-                responseType: 'arraybuffer'
-            })
-            .do(ajaxResponse =>
-                formData.append('file', new Blob([ajaxResponse.response], { type: media.contentType }), media.name)
+        .flatMap(_ =>
+            Observable.from(message.attachments || [])
+            .flatMap((media: Media) =>
+                Observable.ajax({
+                    method: "GET",
+                    url: media.contentUrl,
+                    responseType: 'arraybuffer'
+                })
+                .do(ajaxResponse =>
+                    formData.append('file', new Blob([ajaxResponse.response], { type: media.contentType }), media.name)
+                )
             )
+            .count()
         )
-        .count()
-        .flatMap(_ => Observable.ajax({
-            method: "POST",
-            url: `${this.domain}/conversations/${this.conversationId}/upload?userId=${message.from.id}`,
-            body: formData,
-            timeout,
-            headers: {
-                "Authorization": `Bearer ${this.token}`
-            }
-        }))
-        .map(ajaxResponse => ajaxResponse.response.id as string)
+        .flatMap(_ =>
+            Observable.ajax({
+                method: "POST",
+                url: `${this.domain}/conversations/${this.conversationId}/upload?userId=${message.from.id}`,
+                body: formData,
+                timeout,
+                headers: {
+                    "Authorization": `Bearer ${this.token}`
+                }
+            })
+           .map(ajaxResponse => ajaxResponse.response.id as string)
+        )
         .catch(error => {
             konsole.log("postMessageWithAttachments error", error);
             return error.status >= 400 && error.status < 500
@@ -195,7 +197,8 @@ export class DirectLine implements IBotConnection {
 //      .do(ajaxResponse => konsole.log("getActivityGroup ajaxResponse", ajaxResponse))
         .map(ajaxResponse => ajaxResponse.response as ActivityGroup)
         .flatMap<Activity>(activityGroup => {
-            this.watermark = activityGroup.watermark;
+            if (activityGroup.watermark)
+                this.watermark = activityGroup.watermark;
             return Observable.from(activityGroup.activities);
         })
         .repeatWhen(completed => completed.delay(1000))
